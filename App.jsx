@@ -8,39 +8,32 @@ function apiUrl(path) {
 }
 
 export default function App() {
-  // ----- Locations -----
   const [locations, setLocations] = useState([]);
   const [loadingLocations, setLoadingLocations] = useState(true);
   const [locationError, setLocationError] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [newLocationName, setNewLocationName] = useState("");
 
-  // ----- Inventory -----
   const [items, setItems] = useState([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsError, setItemsError] = useState("");
   const [search, setSearch] = useState("");
 
-  // ----- New item form -----
   const [newItemName, setNewItemName] = useState("");
   const [newItemBarcode, setNewItemBarcode] = useState("");
   const [newItemQty, setNewItemQty] = useState("");
 
-  // ----- Global search -----
   const [globalQuery, setGlobalQuery] = useState("");
   const [globalResults, setGlobalResults] = useState([]);
   const [globalLoading, setGlobalLoading] = useState(false);
   const [globalError, setGlobalError] = useState("");
 
-  // Derived location object
   const selectedLocation = useMemo(
     () => locations.find((l) => l.id === selectedLocationId) || null,
     [locations, selectedLocationId]
   );
 
-  // ================================
-  // LOAD LOCATIONS ON FIRST MOUNT
-  // ================================
+  // LOAD LOCATIONS
   useEffect(() => {
     async function loadLocations() {
       setLoadingLocations(true);
@@ -52,6 +45,7 @@ export default function App() {
         const data = await res.json();
 
         setLocations(data || []);
+
         if (data && data.length > 0 && !selectedLocationId) {
           setSelectedLocationId(data[0].id);
         }
@@ -72,9 +66,7 @@ export default function App() {
     loadLocations();
   }, []);
 
-  // ====================================
-  // LOAD INVENTORY WHEN LOCATION/SEARCH CHANGE
-  // ====================================
+  // LOAD ITEMS
   useEffect(() => {
     if (!selectedLocationId) return;
 
@@ -90,6 +82,7 @@ export default function App() {
 
         const res = await fetch(apiUrl(`/inventory?${params.toString()}`));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const data = await res.json();
         setItems(data || []);
       } catch (err) {
@@ -103,9 +96,7 @@ export default function App() {
     loadItems();
   }, [selectedLocationId, search]);
 
-  // ===========================
-  // ADD NEW LOCATION
-  // ===========================
+  // ADD LOCATION
   async function handleAddLocation(e) {
     e.preventDefault();
     if (!newLocationName.trim()) return;
@@ -117,6 +108,7 @@ export default function App() {
         body: JSON.stringify({ name: newLocationName.trim() }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const created = await res.json();
 
       setLocations((prev) => [...prev, created]);
@@ -127,9 +119,7 @@ export default function App() {
     }
   }
 
-  // ===========================
-  // ADD NEW ITEM
-  // ===========================
+  // ADD ITEM
   async function handleAddItem(e) {
     e.preventDefault();
     if (!selectedLocationId) return;
@@ -154,6 +144,7 @@ export default function App() {
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const created = await res.json();
 
       setItems((prev) =>
@@ -161,6 +152,7 @@ export default function App() {
           a.item_name.localeCompare(b.item_name)
         )
       );
+
       setNewItemName("");
       setNewItemBarcode("");
       setNewItemQty("");
@@ -169,9 +161,8 @@ export default function App() {
       alert("Failed to add item");
     }
   }
-    // =====================================
-  // ADJUST QUANTITY (/inventory/adjust)
-  // =====================================
+
+  // ADJUST QUANTITY
   async function adjustItemQuantity(itemId, delta) {
     if (!selectedLocationId || !delta) return;
 
@@ -204,17 +195,14 @@ export default function App() {
     }
   }
 
-  // ===========================================
-  // SAVE/EDIT ITEM (name + barcode + qty)
-  // PUT /items/:id
-  // ===========================================
+  // SAVE EDIT (FIX 2 — includes quantity)
   async function saveItemEdit(itemId, newName, newBarcode, newQty) {
     try {
       const res = await fetch(apiUrl(`/items/${itemId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          item_name: newName.trim() || null,
+          item_name: newName.trim(),
           barcode: newBarcode.trim() || null,
           quantity:
             newQty === "" || Number.isNaN(Number(newQty))
@@ -222,6 +210,7 @@ export default function App() {
               : Number(newQty),
         }),
       });
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const updated = await res.json();
@@ -237,26 +226,26 @@ export default function App() {
     }
   }
 
-  // ===========================================
-  // GLOBAL SEARCH (now shows LOCATION NAME)
-  // ===========================================
+  // GLOBAL SEARCH (FIX 1 — show location_name)
   async function handleGlobalSearch(e) {
     e.preventDefault();
     if (!globalQuery.trim()) return;
 
     setGlobalLoading(true);
-    setGlobalError("");
     setGlobalResults([]);
+    setGlobalError("");
 
     try {
       const params = new URLSearchParams({ q: globalQuery.trim() });
       const res = await fetch(apiUrl(`/search?${params.toString()}`));
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const results = await res.json();
 
-      // Map location_id → location.name  
-      const map = Object.fromEntries(locations.map((l) => [l.id, l.name]));
+      const map = Object.fromEntries(
+        locations.map((l) => [l.id, l.name])
+      );
 
       const enhanced = results.map((r) => ({
         ...r,
@@ -271,11 +260,7 @@ export default function App() {
       setGlobalLoading(false);
     }
   }
-
-  // ==========================
-  // UI + CSS
-  // ==========================
-  return (
+    return (
     <>
       <style>{`
         body {
@@ -469,7 +454,7 @@ export default function App() {
               <h2 className="section-title">📍 Locations</h2>
 
               {loadingLocations && <p>Loading…</p>}
-              {locationError && <p style={{color:"#d11"}}>{locationError}</p>}
+              {locationError && <p style={{ color: "#d11" }}>{locationError}</p>}
 
               <div className="location-list">
                 {locations.map((loc) => (
@@ -500,9 +485,9 @@ export default function App() {
               </form>
             </div>
           </aside>
-                    {/* MAIN PANEL */}
+
+          {/* MAIN PANEL */}
           <main className="main">
-            
             {/* Mobile location picker */}
             <div className="card mobile-location-picker">
               <label style={{ fontSize: 13, marginBottom: 4, display: "block" }}>
@@ -575,7 +560,7 @@ export default function App() {
                 </table>
               </div>
 
-              {/* Mobile item cards */}
+              {/* Mobile list */}
               <div className="item-card-list">
                 {items.map((item) => (
                   <ItemCard
@@ -585,10 +570,6 @@ export default function App() {
                     onSave={saveItemEdit}
                   />
                 ))}
-
-                {items.length === 0 && !loadingItems && (
-                  <div className="empty-row">No items for this location.</div>
-                )}
               </div>
             </section>
 
@@ -677,9 +658,8 @@ export default function App() {
     </>
   );
 }
-
 /* -------------------------------------------
-   ITEM ROW — desktop table
+   ITEM ROW — Desktop table
 --------------------------------------------*/
 function ItemRow({ item, onAdjust, onSave }) {
   const [editMode, setEditMode] = useState(false);
@@ -770,7 +750,7 @@ function ItemRow({ item, onAdjust, onSave }) {
 }
 
 /* -------------------------------------------
-   ITEM CARD — mobile view
+   ITEM CARD — Mobile view
 --------------------------------------------*/
 function ItemCard({ item, onAdjust, onSave }) {
   const [editMode, setEditMode] = useState(false);
@@ -853,4 +833,3 @@ function ItemCard({ item, onAdjust, onSave }) {
     </div>
   );
 }
-          
