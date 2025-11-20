@@ -7,7 +7,7 @@ steps:
   - name: gcr.io/cloud-builders/npm
     args: ["run", "build"]
 
-  # Deploy to Cloud Run
+  # Deploy to Cloud Run (with correct service account)
   - name: gcr.io/cloud-builders/gcloud
     args:
       [
