@@ -1,7 +1,6 @@
-
 import { useEffect, useState } from 'react'
 
-const API = import.meta.env.VITE_API_BASE_URL
+const API = import.meta.env.VITE_API_URL   // FIXED
 
 export default function App() {
   const [locations, setLocations] = useState([])
@@ -15,7 +14,7 @@ export default function App() {
         setLoading(false)
       })
       .catch(err => {
-        console.error(err)
+        console.error("API error:", err)
         setLoading(false)
       })
   }, [])
