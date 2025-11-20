@@ -1,10 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 // Build correct API endpoint safely
 function apiUrl(path) {
-  const base = (API_BASE || "").replace(/\/$/, "");
+  const base = API_BASE.replace(/\/$/, "");
   return base + path;
 }
 
@@ -48,12 +48,11 @@ export default function App() {
 
       try {
         const res = await fetch(apiUrl("/locations"));
-        if (!res.ok) throw new Error("Bad response");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
         setLocations(data || []);
-
-        if (data.length > 0 && !selectedLocationId) {
+        if (data && data.length > 0 && !selectedLocationId) {
           setSelectedLocationId(data[0].id);
         }
       } catch (err) {
@@ -71,9 +70,10 @@ export default function App() {
     }
 
     loadLocations();
-  }, []);
-    // ====================================
-  // LOAD INVENTORY WHEN LOCATION CHANGES
+  }, []); // run once
+
+  // ====================================
+  // LOAD INVENTORY WHEN LOCATION/SEARCH CHANGE
   // ====================================
   useEffect(() => {
     if (!selectedLocationId) return;
@@ -86,14 +86,10 @@ export default function App() {
         const params = new URLSearchParams({
           location_id: String(selectedLocationId),
         });
-
-        if (search.trim()) {
-          params.set("query", search.trim());
-        }
+        if (search.trim()) params.set("query", search.trim());
 
         const res = await fetch(apiUrl(`/inventory?${params.toString()}`));
-        if (!res.ok) throw new Error("Bad response");
-
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         setItems(data || []);
       } catch (err) {
@@ -120,16 +116,12 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newLocationName.trim() }),
       });
-
-      if (!res.ok) throw new Error("Bad response");
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const created = await res.json();
-      setLocations((p) => [...p, created]);
-      setNewLocationName("");
 
-      if (!selectedLocationId) {
-        setSelectedLocationId(created.id);
-      }
+      setLocations((prev) => [...prev, created]);
+      setNewLocationName("");
+      if (!selectedLocationId) setSelectedLocationId(created.id);
     } catch (err) {
       console.error(err);
       alert("Failed to add location");
@@ -162,17 +154,14 @@ export default function App() {
           location_id: selectedLocationId,
         }),
       });
-
-      if (!res.ok) throw new Error("Bad response");
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const created = await res.json();
 
-      setItems((p) =>
-        [...p, created].sort((a, b) =>
+      setItems((prev) =>
+        [...prev, created].sort((a, b) =>
           a.item_name.localeCompare(b.item_name)
         )
       );
-
       setNewItemName("");
       setNewItemBarcode("");
       setNewItemQty("");
@@ -181,7 +170,8 @@ export default function App() {
       alert("Failed to add item");
     }
   }
-    // =====================================
+
+  // =====================================
   // ADJUST QUANTITY (/inventory/adjust)
   // =====================================
   async function adjustItemQuantity(itemId, delta) {
@@ -196,13 +186,10 @@ export default function App() {
           items: [{ id: itemId, delta }],
         }),
       });
-
-      if (!res.ok) throw new Error("Bad response");
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const updatedRows = data.updated || [];
 
-      // Replace updated rows in existing list
       setItems((prev) => {
         const map = new Map(prev.map((i) => [i.id, { ...i }]));
         for (const u of updatedRows) {
@@ -219,10 +206,10 @@ export default function App() {
   }
 
   // ===========================================
-  // SAVE/EDIT ITEM (name + barcode)
+  // SAVE/EDIT ITEM (name + barcode + qty)
   // PUT /items/:id
   // ===========================================
-  async function saveItemEdit(itemId, newName, newBarcode) {
+  async function saveItemEdit(itemId, newName, newBarcode, newQty) {
     try {
       const res = await fetch(apiUrl(`/items/${itemId}`), {
         method: "PUT",
@@ -230,11 +217,13 @@ export default function App() {
         body: JSON.stringify({
           item_name: newName.trim() || null,
           barcode: newBarcode.trim() || null,
+          quantity:
+            newQty === "" || Number.isNaN(Number(newQty))
+              ? null
+              : Number(newQty),
         }),
       });
-
-      if (!res.ok) throw new Error("Bad response");
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const updated = await res.json();
 
       setItems((prev) =>
@@ -261,10 +250,8 @@ export default function App() {
 
     try {
       const params = new URLSearchParams({ q: globalQuery.trim() });
-
       const res = await fetch(apiUrl(`/search?${params.toString()}`));
-      if (!res.ok) throw new Error("Bad response");
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const results = await res.json();
       setGlobalResults(results || []);
     } catch (err) {
@@ -275,170 +262,343 @@ export default function App() {
     }
   }
 
-  // ===========================================
-  // ITEM ROW COMPONENT
-  // ===========================================
-  function ItemRow({ item, onAdjust, onSave }) {
-    const [editMode, setEditMode] = useState(false);
-    const [tempName, setTempName] = useState(item.item_name);
-    const [tempBarcode, setTempBarcode] = useState(item.barcode || "");
-
-    function save() {
-      onSave(item.id, tempName, tempBarcode);
-      setEditMode(false);
-    }
-
-    return (
-      <tr>
-        <td style={styles.td}>
-          {editMode ? (
-            <input
-              style={styles.input}
-              value={tempName}
-              onChange={(e) => setTempName(e.target.value)}
-            />
-          ) : (
-            item.item_name
-          )}
-        </td>
-
-        <td style={styles.td}>
-          {editMode ? (
-            <input
-              style={styles.input}
-              value={tempBarcode}
-              onChange={(e) => setTempBarcode(e.target.value)}
-            />
-          ) : (
-            item.barcode || "—"
-          )}
-        </td>
-
-        <td style={styles.td}>{item.quantity}</td>
-
-        <td style={styles.td}>
-          {new Date(item.updated_at).toLocaleString()}
-        </td>
-
-        <td style={styles.td}>
-          {!editMode ? (
-            <>
-              <button style={styles.qtyBtn} onClick={() => onAdjust(item.id, +1)}>
-                +1
-              </button>
-              <button style={styles.qtyBtn} onClick={() => onAdjust(item.id, -1)}>
-                -1
-              </button>
-              <button style={styles.secondaryButton} onClick={() => setEditMode(true)}>
-                Edit
-              </button>
-            </>
-          ) : (
-            <>
-              <button style={styles.primaryButton} onClick={save}>
-                Save
-              </button>
-              <button
-                style={styles.secondaryButton}
-                onClick={() => {
-                  setEditMode(false);
-                  setTempName(item.item_name);
-                  setTempBarcode(item.barcode || "");
-                }}
-              >
-                Cancel
-              </button>
-            </>
-          )}
-        </td>
-      </tr>
-    );
-  }
-
-  // ===========================================
-  // FINAL RENDER
-  // ===========================================
   return (
-    <div style={styles.app}>
-      <header style={styles.header}>
-        <h1 style={{ margin: 0 }}>Locofly Inventory</h1>
-        <span style={styles.apiHint}>
-          API: <code>{API_BASE || "⚠️ Not Set"}</code>
-        </span>
-      </header>
+    <>
+      {/* Embedded styles with media queries for mobile */}
+      <style>{`
+        body {
+          margin: 0;
+          font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+          background: #f5f5f5;
+        }
+        .app-root {
+          min-height: 100vh;
+          padding: 16px;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          margin-bottom: 16px;
+          gap: 8px;
+        }
+        .header-title {
+          margin: 0;
+          font-size: 22px;
+        }
+        .api-hint {
+          font-size: 11px;
+          opacity: 0.7;
+          word-break: break-all;
+        }
+        .layout {
+          display: flex;
+          gap: 16px;
+        }
+        .sidebar {
+          width: 230px;
+          flex-shrink: 0;
+        }
+        .main {
+          flex: 1;
+        }
+        .card {
+          background: #fff;
+          border-radius: 10px;
+          padding: 14px;
+          margin-bottom: 16px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .section-title {
+          margin: 0 0 10px 0;
+          font-size: 18px;
+        }
+        .location-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-bottom: 16px;
+        }
+        .location-btn {
+          padding: 8px 10px;
+          border-radius: 6px;
+          border: 1px solid #d0d0d0;
+          background: #fff;
+          text-align: left;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        .location-btn.active {
+          background: #0077ff;
+          color: #fff;
+          border-color: #0077ff;
+        }
+        .input {
+          padding: 8px;
+          border-radius: 6px;
+          border: 1px solid #ccc;
+          font-size: 14px;
+        }
+        .btn-primary {
+          background: #0077ff;
+          color: #fff;
+          padding: 8px 14px;
+          border-radius: 6px;
+          border: none;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        .btn-secondary {
+          background: #eee;
+          padding: 8px 14px;
+          border-radius: 6px;
+          border: none;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        .btn-qty {
+          padding: 5px 9px;
+          border-radius: 4px;
+          border: none;
+          background: #eee;
+          margin-right: 4px;
+          cursor: pointer;
+          font-size: 13px;
+        }
+        .error-text {
+          color: #d11;
+          font-size: 13px;
+        }
+        table.inventory-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 14px;
+        }
+        table.inventory-table th,
+        table.inventory-table td {
+          padding: 8px;
+          border-bottom: 1px solid #e5e5e5;
+          text-align: left;
+        }
+        table.inventory-table th {
+          border-bottom-width: 2px;
+        }
+        .empty-row {
+          text-align: center;
+          padding: 18px 0;
+          color: #777;
+        }
+        .main-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        .flex-wrap {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .w-100 {
+          width: 100%;
+        }
 
-      <div style={styles.layout}>
-        {/* SIDEBAR: LOCATIONS */}
-        <aside style={styles.sidebar}>
-          <h2 style={styles.sectionTitle}>📍 Locations</h2>
+        /* Item cards for mobile */
+        .item-card-list {
+          display: none;
+        }
+        .item-card {
+          border-radius: 8px;
+          border: 1px solid #e1e1e1;
+          padding: 10px;
+          margin-bottom: 8px;
+          background: #fafafa;
+        }
+        .item-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          margin-bottom: 6px;
+        }
+        .item-name {
+          font-weight: 600;
+        }
+        .item-meta {
+          font-size: 12px;
+          color: #666;
+        }
+        .item-card-footer {
+          margin-top: 8px;
+        }
 
-          {loadingLocations && <p>Loading...</p>}
-          {locationError && <p style={styles.error}>{locationError}</p>}
+        /* Mobile layout */
+        @media (max-width: 768px) {
+          .layout {
+            flex-direction: column;
+          }
+          .sidebar {
+            display: none; /* hide sidebar on mobile */
+          }
+          .header {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .api-hint {
+            font-size: 10px;
+          }
+          .mobile-location-picker {
+            margin-bottom: 12px;
+          }
+          .mobile-location-picker select {
+            width: 100%;
+          }
+          .flex-wrap > * {
+            flex: 1 1 100%;
+          }
+          .desktop-table {
+            display: none;
+          }
+          .item-card-list {
+            display: block;
+          }
+        }
+      `}</style>
 
-          <div style={styles.locationList}>
-            {locations.map((loc) => (
-              <button
-                key={loc.id}
-                style={{
-                  ...styles.locationButton,
-                  ...(loc.id === selectedLocationId
-                    ? styles.locationButtonActive
-                    : {}),
-                }}
-                onClick={() => setSelectedLocationId(loc.id)}
+      <div className="app-root">
+        <header className="header">
+          <h1 className="header-title">Locofly Inventory</h1>
+          <span className="api-hint">
+            API: <code>{API_BASE || "⚠️ Not Set"}</code>
+          </span>
+        </header>
+
+        <div className="layout">
+          {/* -------- Sidebar (desktop) -------- */}
+          <aside className="sidebar">
+            <div className="card">
+              <h2 className="section-title">📍 Locations</h2>
+
+              {loadingLocations && <p>Loading locations...</p>}
+              {locationError && (
+                <p className="error-text">{locationError}</p>
+              )}
+
+              <div className="location-list">
+                {locations.map((loc) => (
+                  <button
+                    key={loc.id}
+                    className={
+                      "location-btn" +
+                      (loc.id === selectedLocationId ? " active" : "")
+                    }
+                    onClick={() => setSelectedLocationId(loc.id)}
+                  >
+                    {loc.name}
+                  </button>
+                ))}
+                {locations.length === 0 && !loadingLocations && !locationError && (
+                  <p style={{ fontSize: 13, color: "#666" }}>No locations yet.</p>
+                )}
+              </div>
+
+              <form onSubmit={handleAddLocation}>
+                <input
+                  className="input w-100"
+                  value={newLocationName}
+                  onChange={(e) => setNewLocationName(e.target.value)}
+                  placeholder="Location name"
+                  style={{ marginBottom: 8 }}
+                />
+                <button className="btn-primary w-100" type="submit">
+                  + Add Location
+                </button>
+              </form>
+            </div>
+          </aside>
+
+          {/* -------- Main -------- */}
+          <main className="main">
+            {/* Mobile location picker */}
+            <div className="card mobile-location-picker">
+              <label style={{ fontSize: 13, marginBottom: 4, display: "block" }}>
+                📍 Location
+              </label>
+              <select
+                className="input w-100"
+                value={selectedLocationId || ""}
+                onChange={(e) => setSelectedLocationId(Number(e.target.value))}
               >
-                {loc.name}
-              </button>
-            ))}
-          </div>
-
-          {/* Add Location */}
-          <form onSubmit={handleAddLocation} style={styles.card}>
-            <h3 style={styles.cardTitle}>Add Location</h3>
-            <input
-              style={styles.input}
-              value={newLocationName}
-              onChange={(e) => setNewLocationName(e.target.value)}
-              placeholder="Location name"
-            />
-            <button style={styles.primaryButton}>+ Add</button>
-          </form>
-        </aside>
-
-        {/* MAIN PANEL */}
-        <main style={styles.main}>
-          {/* -------- INVENTORY -------- */}
-          <section style={styles.card}>
-            <div style={styles.mainHeader}>
-              <h2 style={styles.sectionTitle}>
-                🧺 Inventory {selectedLocation && `– ${selectedLocation.name}`}
-              </h2>
-
-              <input
-                style={{ ...styles.input, width: "260px" }}
-                placeholder="Search items"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {loadingItems && <p>Loading...</p>}
-            {itemsError && <p style={styles.error}>{itemsError}</p>}
+            {/* Inventory section */}
+            <section className="card">
+              <div className="main-header">
+                <div>
+                  <h2 className="section-title">
+                    🧺 Inventory{" "}
+                    {selectedLocation ? `– ${selectedLocation.name}` : ""}
+                  </h2>
+                  {!selectedLocation && (
+                    <p style={{ fontSize: 13 }}>
+                      Select a location to see its stock.
+                    </p>
+                  )}
+                </div>
+                <input
+                  className="input"
+                  style={{ minWidth: 220 }}
+                  placeholder="Search by name or barcode"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
 
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Item</th>
-                  <th style={styles.th}>Barcode</th>
-                  <th style={styles.th}>Qty</th>
-                  <th style={styles.th}>Updated</th>
-                  <th style={styles.th}>Actions</th>
-                </tr>
-              </thead>
+              {itemsError && <p className="error-text">{itemsError}</p>}
+              {loadingItems && <p>Loading items...</p>}
 
-              <tbody>
+              {/* Desktop table */}
+              <div className="desktop-table">
+                <table className="inventory-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Barcode</th>
+                      <th>Qty</th>
+                      <th>Updated</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <ItemRow
+                        key={item.id}
+                        item={item}
+                        onAdjust={adjustItemQuantity}
+                        onSave={saveItemEdit}
+                      />
+                    ))}
+                    {items.length === 0 && !loadingItems && (
+                      <tr>
+                        <td colSpan={5} className="empty-row">
+                          No items for this location.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile cards */}
+              <div className="item-card-list">
                 {items.map((item) => (
-                  <ItemRow
+                  <ItemCard
                     key={item.id}
                     item={item}
                     onAdjust={adjustItemQuantity}
@@ -446,192 +606,304 @@ export default function App() {
                   />
                 ))}
                 {items.length === 0 && !loadingItems && (
-                  <tr>
-                    <td colSpan={5} style={styles.emptyRow}>
-                      No items
-                    </td>
-                  </tr>
+                  <div className="empty-row">No items for this location.</div>
                 )}
-              </tbody>
-            </table>
-          </section>
-
-          {/* -------- ADD ITEM -------- */}
-          <section style={styles.card}>
-            <h3 style={styles.cardTitle}>Add Item</h3>
-
-            <form
-              onSubmit={handleAddItem}
-              style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
-            >
-              <input
-                style={{ ...styles.input, width: "200px" }}
-                value={newItemName}
-                onChange={(e) => setNewItemName(e.target.value)}
-                placeholder="Item name"
-              />
-              <input
-                style={{ ...styles.input, width: "160px" }}
-                value={newItemBarcode}
-                onChange={(e) => setNewItemBarcode(e.target.value)}
-                placeholder="Barcode"
-              />
-              <input
-                type="number"
-                style={{ ...styles.input, width: "80px" }}
-                value={newItemQty}
-                onChange={(e) => setNewItemQty(e.target.value)}
-                placeholder="Qty"
-              />
-              <button style={styles.primaryButton}>Add</button>
-            </form>
-          </section>
-
-          {/* -------- GLOBAL SEARCH -------- */}
-          <section style={styles.card}>
-            <h3 style={styles.cardTitle}>🔎 Global Search</h3>
-
-            <form
-              onSubmit={handleGlobalSearch}
-              style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
-            >
-              <input
-                style={{ ...styles.input, flex: "1 1 260px" }}
-                placeholder="Search all items"
-                value={globalQuery}
-                onChange={(e) => setGlobalQuery(e.target.value)}
-              />
-              <button style={styles.secondaryButton}>Search</button>
-            </form>
-
-            {globalLoading && <p>Searching...</p>}
-            {globalError && <p style={styles.error}>{globalError}</p>}
-
-            {globalResults.length > 0 && (
-              <div style={{ marginTop: "10px", maxHeight: "220px", overflowY: "auto" }}>
-                {globalResults.map((r) => (
-                  <div key={r.id} style={styles.searchResult}>
-                    <strong>{r.item_name}</strong> — qty {r.quantity} (loc {r.location_id})
-                  </div>
-                ))}
               </div>
-            )}
-          </section>
-        </main>
+            </section>
+
+            {/* Add item */}
+            <section className="card">
+              <h3 className="section-title">Add Item</h3>
+              {!selectedLocation && (
+                <p className="error-text">Select a location first.</p>
+              )}
+
+              <form onSubmit={handleAddItem} className="flex-wrap">
+                <input
+                  className="input"
+                  placeholder="Item name"
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                />
+                <input
+                  className="input"
+                  placeholder="Barcode (optional)"
+                  value={newItemBarcode}
+                  onChange={(e) => setNewItemBarcode(e.target.value)}
+                />
+                <input
+                  className="input"
+                  type="number"
+                  placeholder="Qty"
+                  value={newItemQty}
+                  onChange={(e) => setNewItemQty(e.target.value)}
+                  style={{ maxWidth: 100 }}
+                />
+                <button className="btn-primary" type="submit">
+                  Add
+                </button>
+              </form>
+            </section>
+
+            {/* Global search */}
+            <section className="card">
+              <h3 className="section-title">🔎 Global Search</h3>
+              <form onSubmit={handleGlobalSearch} className="flex-wrap">
+                <input
+                  className="input"
+                  placeholder="Search full 20k SKU catalogue"
+                  value={globalQuery}
+                  onChange={(e) => setGlobalQuery(e.target.value)}
+                />
+                <button className="btn-secondary" type="submit">
+                  Search
+                </button>
+              </form>
+
+              {globalLoading && <p>Searching...</p>}
+              {globalError && <p className="error-text">{globalError}</p>}
+
+              {globalResults.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    maxHeight: 220,
+                    overflowY: "auto",
+                    fontSize: 13,
+                  }}
+                >
+                  {globalResults.map((r) => (
+                    <div key={r.id} className="item-card">
+                      <div className="item-card-header">
+                        <span className="item-name">{r.item_name}</span>
+                        <span className="item-meta">
+                          loc {r.location_id} · qty {r.quantity}
+                        </span>
+                      </div>
+                      <div className="item-meta">
+                        Barcode: {r.barcode || "—"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
-// =========================================
-// STYLES
-// =========================================
-const styles = {
-  app: {
-    fontFamily: "Arial, sans-serif",
-    background: "#f5f5f5",
-    minHeight: "100vh",
-    padding: "20px",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    marginBottom: "20px",
-  },
-  apiHint: {
-    fontSize: "12px",
-    opacity: 0.7,
-  },
-  layout: {
-    display: "flex",
-    gap: "20px",
-  },
-  sidebar: {
-    width: "240px",
-  },
-  sectionTitle: {
-    marginBottom: "10px",
-  },
-  locationList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    marginBottom: "20px",
-  },
-  locationButton: {
-    padding: "10px",
-    border: "1px solid #ccc",
-    borderRadius: "6px",
-    background: "#fff",
-    textAlign: "left",
-    cursor: "pointer",
-  },
-  locationButtonActive: {
-    background: "#0077ff",
-    color: "#fff",
-  },
-  main: {
-    flex: 1,
-  },
-  card: {
-    background: "#fff",
-    padding: "16px",
-    borderRadius: "8px",
-    marginBottom: "20px",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-  },
-  cardTitle: { marginBottom: "12px" },
-  input: {
-    padding: "8px",
-    border: "1px solid #ccc",
-    borderRadius: "6px",
-  },
-  primaryButton: {
-    background: "#0077ff",
-    color: "#fff",
-    padding: "8px 16px",
-    border: "none",
-    borderRadius: "6px",
-    cursor: "pointer",
-  },
-  secondaryButton: {
-    background: "#eee",
-    padding: "8px 16px",
-    borderRadius: "6px",
-    cursor: "pointer",
-  },
-  qtyBtn: {
-    padding: "6px 10px",
-    marginRight: "6px",
-    cursor: "pointer",
-    background: "#eee",
-    borderRadius: "4px",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-  },
-  th: {
-    padding: "8px",
-    borderBottom: "2px solid #ccc",
-    textAlign: "left",
-  },
-  td: {
-    padding: "8px",
-    borderBottom: "1px solid #ddd",
-  },
-  emptyRow: {
-    textAlign: "center",
-    padding: "20px",
-    opacity: 0.6,
-  },
-  error: { color: "red" },
-  searchResult: {
-    background: "#f4f4f4",
-    padding: "10px",
-    borderRadius: "6px",
-    marginBottom: "8px",
-  },
-};
+/* ---------- Item row for DESKTOP table ---------- */
+function ItemRow({ item, onAdjust, onSave }) {
+  const [editMode, setEditMode] = useState(false);
+  const [tempName, setTempName] = useState(item.item_name);
+  const [tempBarcode, setTempBarcode] = useState(item.barcode || "");
+  const [tempQty, setTempQty] = useState(String(item.quantity));
 
+  function cancel() {
+    setEditMode(false);
+    setTempName(item.item_name);
+    setTempBarcode(item.barcode || "");
+    setTempQty(String(item.quantity));
+  }
 
+  function save() {
+    onSave(item.id, tempName, tempBarcode, tempQty);
+    setEditMode(false);
+  }
+
+  return (
+    <tr>
+      <td>
+        {editMode ? (
+          <input
+            className="input w-100"
+            value={tempName}
+            onChange={(e) => setTempName(e.target.value)}
+          />
+        ) : (
+          item.item_name
+        )}
+      </td>
+      <td>
+        {editMode ? (
+          <input
+            className="input w-100"
+            value={tempBarcode}
+            onChange={(e) => setTempBarcode(e.target.value)}
+          />
+        ) : (
+          item.barcode || "—"
+        )}
+      </td>
+      <td>
+        {editMode ? (
+          <input
+            className="input"
+            type="number"
+            style={{ maxWidth: 80 }}
+            value={tempQty}
+            onChange={(e) => setTempQty(e.target.value)}
+          />
+        ) : (
+          item.quantity
+        )}
+      </td>
+      <td>{new Date(item.updated_at).toLocaleString()}</td>
+      <td>
+        {!editMode ? (
+          <>
+            <button
+              className="btn-qty"
+              type="button"
+              onClick={() => onAdjust(item.id, +1)}
+            >
+              +1
+            </button>
+            <button
+              className="btn-qty"
+              type="button"
+              onClick={() => onAdjust(item.id, -1)}
+            >
+              -1
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setEditMode(true)}
+            >
+              Edit
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              className="btn-primary"
+              type="button"
+              style={{ marginRight: 6 }}
+              onClick={save}
+            >
+              Save
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={cancel}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/* ---------- Item card for MOBILE ---------- */
+function ItemCard({ item, onAdjust, onSave }) {
+  const [editMode, setEditMode] = useState(false);
+  const [tempName, setTempName] = useState(item.item_name);
+  const [tempBarcode, setTempBarcode] = useState(item.barcode || "");
+  const [tempQty, setTempQty] = useState(String(item.quantity));
+
+  function cancel() {
+    setEditMode(false);
+    setTempName(item.item_name);
+    setTempBarcode(item.barcode || "");
+    setTempQty(String(item.quantity));
+  }
+
+  function save() {
+    onSave(item.id, tempName, tempBarcode, tempQty);
+    setEditMode(false);
+  }
+
+  return (
+    <div className="item-card">
+      {!editMode ? (
+        <>
+          <div className="item-card-header">
+            <span className="item-name">{item.item_name}</span>
+            <span className="item-meta">
+              Qty {item.quantity}
+            </span>
+          </div>
+          <div className="item-meta">
+            Barcode: {item.barcode || "—"}
+          </div>
+          <div className="item-meta">
+            Updated: {new Date(item.updated_at).toLocaleString()}
+          </div>
+          <div className="item-card-footer">
+            <button
+              className="btn-qty"
+              type="button"
+              onClick={() => onAdjust(item.id, +1)}
+            >
+              +1
+            </button>
+            <button
+              className="btn-qty"
+              type="button"
+              onClick={() => onAdjust(item.id, -1)}
+            >
+              -1
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => setEditMode(true)}
+            >
+              Edit
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="item-card-header">
+            <input
+              className="input w-100"
+              value={tempName}
+              onChange={(e) => setTempName(e.target.value)}
+            />
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <input
+              className="input w-100"
+              value={tempBarcode}
+              onChange={(e) => setTempBarcode(e.target.value)}
+              placeholder="Barcode"
+              style={{ marginBottom: 6 }}
+            />
+            <input
+              className="input w-100"
+              type="number"
+              value={tempQty}
+              onChange={(e) => setTempQty(e.target.value)}
+              placeholder="Qty"
+            />
+          </div>
+          <div className="item-card-footer">
+            <button
+              className="btn-primary"
+              type="button"
+              style={{ marginRight: 6 }}
+              onClick={save}
+            >
+              Save
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={cancel}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
