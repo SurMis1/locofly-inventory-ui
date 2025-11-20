@@ -16,7 +16,7 @@ steps:
         "--region=asia-south1",
         "--platform=managed",
         "--allow-unauthenticated",
-        "--service-account=cloudbuild-sa@ageless-granite-478411-q3.iam.gserviceaccount.com"
+        "--service-account=cloudrun-sa@ageless-granite-478411-q3.iam.gserviceaccount.com"
       ]
 
 options:
